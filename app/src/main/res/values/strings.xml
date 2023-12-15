@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Chattingan</string>
+    <string name="placeholder_message">Ketikan pesan anda disini</string>
+</resources>
