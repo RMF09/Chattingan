@@ -1,12 +1,15 @@
 package com.rmf.chat
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,10 +38,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +64,6 @@ class MainActivity : ComponentActivity() {
 
             val viewModel: MainViewModel = viewModel()
             val chats by viewModel.chatList.collectAsState(initial = emptyList())
-
             LaunchedEffect(key1 = Unit) {
                 viewModel.initialize()
             }
@@ -75,10 +79,13 @@ class MainActivity : ComponentActivity() {
                     MainContent(
                         chats = chats,
                         message = viewModel.message,
+                        userIsTyping = viewModel.userIsTyping,
                         onMessageChange = {
                             viewModel.message = it
                         },
-                        onClickSend = viewModel::sendMessage
+                        onClickSend = viewModel::sendMessage,
+                        onTyping = viewModel::sendStartTyping,
+                        onStopTyping = viewModel::stopTyping
                     )
                 }
             }
@@ -91,8 +98,11 @@ class MainActivity : ComponentActivity() {
 fun MainContent(
     chats: List<Chat>,
     message: String,
+    userIsTyping: String,
     onMessageChange: (String) -> Unit,
     onClickSend: () -> Unit,
+    onTyping: () -> Unit,
+    onStopTyping: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -103,11 +113,27 @@ fun MainContent(
             chats = chats, modifier = Modifier
                 .fillMaxSize()
         )
-        MessageSendSection(
-            message = message,
-            onMessageChange = onMessageChange,
-            onClickSend = onClickSend
-        )
+        Column(
+            modifier = Modifier.background(color = MaterialTheme.colorScheme.background)
+        ) {
+            if (userIsTyping.isNotBlank())
+                Text(
+                    text = stringResource(id = R.string.user_is_typing, userIsTyping),
+                    fontStyle = FontStyle.Italic,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(4.dp)
+                )
+
+            MessageSendSection(
+                message = message,
+                onMessageChange = onMessageChange,
+                onClickSend = onClickSend,
+                onTyping = onTyping,
+                onStopTyping = onStopTyping
+            )
+        }
+
     }
 }
 
@@ -122,7 +148,7 @@ fun ListChat(modifier: Modifier = Modifier, chats: List<Chat>) {
         items(chats) { chat ->
             MessageContent(chat = chat)
         }
-        item { 
+        item {
             Spacer(modifier = Modifier.height(54.dp))
         }
     }
@@ -165,12 +191,15 @@ fun MessageSendSection(
     modifier: Modifier = Modifier,
     message: String,
     onMessageChange: (String) -> Unit,
-    onClickSend: () -> Unit
+    onClickSend: () -> Unit,
+    onTyping: () -> Unit,
+    onStopTyping: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val handler = rememberUpdatedState(newValue = Handler(Looper.myLooper()!!))
+
     Box(
         modifier = modifier
-            .background(color = MaterialTheme.colorScheme.background)
             .fillMaxWidth()
             .defaultMinSize(minHeight = 50.dp)
     ) {
@@ -180,7 +209,15 @@ fun MessageSendSection(
         ) {
             TextField(
                 value = message,
-                onValueChange = onMessageChange,
+                onValueChange = {
+                    onMessageChange(it)
+                    onTyping()
+
+                    handler.value.removeCallbacksAndMessages(null)
+                    handler.value.postDelayed({
+                        onStopTyping()
+                    }, 4000)
+                },
                 placeholder = {
                     Text(text = stringResource(id = R.string.placeholder_message))
                 },
@@ -188,11 +225,13 @@ fun MessageSendSection(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
                     onSend = {
+                        handler.value.removeCallbacksAndMessages(null)
                         focusManager.clearFocus()
                         onClickSend()
                     })
             )
             IconButton(onClick = {
+                handler.value.removeCallbacksAndMessages(null)
                 focusManager.clearFocus()
                 onClickSend()
             }) {
